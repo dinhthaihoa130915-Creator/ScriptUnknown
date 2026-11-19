@@ -1,0 +1,955 @@
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+local MarketPlaceService = game:GetService("MarketplaceService")
+local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local TweenService = game:GetService("TweenService")
+
+local LocalPlayer = Players.LocalPlayer
+local Camera = Workspace.CurrentCamera
+
+local targetParent = pcall(function() return CoreGui end) and CoreGui or LocalPlayer:WaitForChild("PlayerGui")
+
+local customFont = Font.fromId(12187369046)
+
+-- Hàm tạo hiệu ứng Liquid Glass (Kính lỏng, trong suốt, viền khúc xạ ánh sáng)
+local function applyLiquidGlass(instance, cornerRadius, isButton)
+	instance.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	instance.BackgroundTransparency = isButton and 0.86 or 0.82
+
+	local corner = instance:FindFirstChildOfClass("UICorner") or Instance.new("UICorner", instance)
+	corner.CornerRadius = UDim.new(0, cornerRadius or 12)
+
+	local glassGrad = instance:FindFirstChildOfClass("UIGradient") or Instance.new("UIGradient", instance)
+	glassGrad.Rotation = 135
+	glassGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.45, Color3.fromRGB(190, 215, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(120, 145, 255))
+	})
+	glassGrad.Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.15),
+		NumberSequenceKeypoint.new(0.5, 0.45),
+		NumberSequenceKeypoint.new(1, 0.25)
+	})
+
+	local stroke = instance:FindFirstChildOfClass("UIStroke") or Instance.new("UIStroke", instance)
+	stroke.Thickness = isButton and 1.2 or 1.8
+	stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	stroke.Color = Color3.fromRGB(255, 255, 255)
+	stroke.Transparency = 0.35
+
+	local strokeGrad = stroke:FindFirstChildOfClass("UIGradient") or Instance.new("UIGradient", stroke)
+	strokeGrad.Rotation = 45
+	strokeGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.5, Color3.fromRGB(140, 180, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 255, 255))
+	})
+
+	return stroke
+end
+
+-- Hàm tạo hiệu ứng gợn sóng giọt nước lan tỏa khi bấm
+local function triggerLiquidRipple(btn, x, y)
+	btn.ClipsDescendants = true
+
+	local shrinkTween = TweenService:Create(btn, TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 0.65
+	})
+	local bounceTween = TweenService:Create(btn, TweenInfo.new(0.45, Enum.EasingStyle.Elastic, Enum.EasingDirection.Out), {
+		BackgroundTransparency = 0.86
+	})
+	shrinkTween:Play()
+	shrinkTween.Completed:Connect(function()
+		bounceTween:Play()
+	end)
+
+	local absPos = btn.AbsolutePosition
+	local absSize = btn.AbsoluteSize
+	local relX = (x and (x - absPos.X)) or (absSize.X / 2)
+	local relY = (y and (y - absPos.Y)) or (absSize.Y / 2)
+
+	local droplet = Instance.new("Frame", btn)
+	droplet.AnchorPoint = Vector2.new(0.5, 0.5)
+	droplet.Position = UDim2.new(0, relX, 0, relY)
+	droplet.Size = UDim2.new(0, 4, 0, 4)
+	droplet.BackgroundColor3 = Color3.fromRGB(220, 240, 255)
+	droplet.BackgroundTransparency = 0.25
+	droplet.ZIndex = btn.ZIndex + 3
+	droplet.BorderSizePixel = 0
+
+	local dCorner = Instance.new("UICorner", droplet)
+	dCorner.CornerRadius = UDim.new(1, 0)
+
+	local dStroke = Instance.new("UIStroke", droplet)
+	dStroke.Color = Color3.fromRGB(255, 255, 255)
+	dStroke.Thickness = 1.5
+	dStroke.Transparency = 0.2
+
+	local maxDim = math.max(absSize.X, absSize.Y) * 2.4
+	local rippleTween = TweenService:Create(droplet, TweenInfo.new(0.55, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Size = UDim2.new(0, maxDim, 0, maxDim),
+		BackgroundTransparency = 1
+	})
+	local strokeTween = TweenService:Create(dStroke, TweenInfo.new(0.55, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Transparency = 1
+	})
+
+	rippleTween:Play()
+	strokeTween:Play()
+	rippleTween.Completed:Connect(function()
+		droplet:Destroy()
+	end)
+end
+
+-- Phần Get Key (Thu nhỏ một chút: 380x240, áp dụng hiệu ứng Liquid Glass)
+local keyGui = Instance.new("ScreenGui")
+keyGui.Name = "LimitedEditionKeySystem"
+keyGui.ResetOnSpawn = false
+keyGui.Parent = targetParent
+
+local keyFrame = Instance.new("Frame", keyGui)
+keyFrame.Size = UDim2.new(0, 380, 0, 240)
+keyFrame.Position = UDim2.new(0.5, -190, 0.5, -120)
+keyFrame.Active = true
+keyFrame.Draggable = true
+applyLiquidGlass(keyFrame, 16, false)
+
+local keyTitle = Instance.new("TextLabel", keyFrame)
+keyTitle.Size = UDim2.new(1, 0, 0, 48)
+keyTitle.Text = "Hệ Thống Xác Thực Key"
+keyTitle.TextColor3 = Color3.fromRGB(255, 255, 255)
+keyTitle.TextSize = 18
+keyTitle.BackgroundTransparency = 1
+keyTitle.FontFace = customFont
+
+local keyBox = Instance.new("TextBox", keyFrame)
+keyBox.Size = UDim2.new(1, -36, 0, 42)
+keyBox.Position = UDim2.new(0, 18, 0, 52)
+keyBox.PlaceholderText = "Nhập Key vào đây..."
+keyBox.Text = ""
+keyBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+keyBox.PlaceholderColor3 = Color3.fromRGB(210, 220, 240)
+keyBox.TextSize = 15
+keyBox.FontFace = customFont
+applyLiquidGlass(keyBox, 10, true)
+
+local submitBtn = Instance.new("TextButton", keyFrame)
+submitBtn.Size = UDim2.new(1, -36, 0, 40)
+submitBtn.Position = UDim2.new(0, 18, 0, 104)
+submitBtn.Text = "XÁC NHẬN KEY"
+submitBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+submitBtn.TextSize = 15
+submitBtn.FontFace = customFont
+applyLiquidGlass(submitBtn, 10, true)
+
+local getLinkBtn = Instance.new("TextButton", keyFrame)
+getLinkBtn.Size = UDim2.new(1, -36, 0, 40)
+getLinkBtn.Position = UDim2.new(0, 18, 0, 154)
+getLinkBtn.Text = "LẤY LINK KEY"
+getLinkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+getLinkBtn.TextSize = 15
+getLinkBtn.FontFace = customFont
+applyLiquidGlass(getLinkBtn, 10, true)
+
+local linkNotify = Instance.new("TextLabel", keyFrame)
+linkNotify.Size = UDim2.new(1, 0, 0, 24)
+linkNotify.Position = UDim2.new(0, 0, 0, 202)
+linkNotify.BackgroundTransparency = 1
+linkNotify.Text = ""
+linkNotify.TextColor3 = Color3.fromRGB(120, 255, 170)
+linkNotify.TextSize = 12
+linkNotify.FontFace = customFont
+
+getLinkBtn.MouseButton1Click:Connect(function(x, y)
+	triggerLiquidRipple(getLinkBtn, x, y)
+	local url = "https://raw.githubusercontent.com/dinhthaihoa130915-Creator/Unknown/refs/heads/lol/Key"
+	pcall(function()
+		if setclipboard then
+			setclipboard(url)
+			linkNotify.Text = "Đã sao chép link lấy key vào Clipboard!"
+		else
+			linkNotify.Text = url
+		end
+	end)
+end)
+
+local function StartMainScript()
+	keyGui:Destroy()
+
+	local lagStart = os.clock()
+	while (os.clock() - lagStart) < 0.3 do
+	end
+
+	task.spawn(function()
+		local message = "★彡 Рussy Uиkиоши 彡★"
+		pcall(function()
+			if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+				local generalChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
+				if generalChannel then
+					generalChannel:SendAsync(message)
+				end
+			else
+				local defaultChatSystemChatEvents = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
+				if defaultChatSystemChatEvents then
+					local sayMessageRequest = defaultChatSystemChatEvents:FindFirstChild("SayMessageRequest")
+					if sayMessageRequest then
+						sayMessageRequest:FireServer(message, "All")
+					end
+				end
+			end
+		end)
+	end)
+
+	if targetParent:FindFirstChild("LimitedEditionUI") then
+		targetParent:FindFirstChild("LimitedEditionUI"):Destroy()
+	end
+
+	local sg = Instance.new("ScreenGui")
+	sg.Name = "LimitedEditionUI"
+	sg.ResetOnSpawn = false
+	sg.Parent = targetParent
+
+	local HitboxEnabled = false
+	local SpeedEnabled = false
+	local NormalSpeedEnabled = false
+	local SpinEnabled = false
+	local EspMM2Enabled = false
+	local AimbotEnabled = false
+	local Fps144Enabled = false
+	local InvisibleEnabled = false
+	local AutoJumpEnabled = false
+	local InfiniteJumpEnabled = false
+	local TracerEnabled = true
+	local LagToggleEnabled = false
+	local DarkModeEnabled = false
+	local Ratio43Enabled = false
+	local HitboxSize = 23
+	local SelectedPlayer = nil
+	local savedPosition = nil
+	local SpeedAmount = 50
+	local NormalSpeedAmount = 250.67
+	local IsLagging = false
+
+	local originalClockTime = Lighting.ClockTime
+	local originalBrightness = Lighting.Brightness
+	local originalAmbient = Lighting.Ambient
+
+	local function setMaxFPS(cap)
+		pcall(function()
+			if setfpscap then
+				setfpscap(cap)
+			elseif set_fps_cap then
+				set_fps_cap(cap)
+			end
+		end)
+	end
+
+	local function applyStretchMode(factor)
+		getgenv().StretchFactor = factor
+		local cam = workspace.CurrentCamera
+		local rs = game:GetService("RunService")
+		if not getgenv().StretchLoaded then
+			getgenv().StretchLoaded = true
+			rs.RenderStepped:Connect(function()
+				cam.CFrame = cam.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, getgenv().StretchFactor, 0, 0, 0, 1)
+			end)
+		end
+	end
+
+	-- Nút MENU (Phóng to 1.5x + Liquid Glass)
+	local menuToggleBtn = Instance.new("TextButton", sg)
+	menuToggleBtn.Name = "MenuToggleButton"
+	menuToggleBtn.Size = UDim2.new(0, 135, 0, 57)
+	menuToggleBtn.Position = UDim2.new(0.05, 0, 0.08, 0)
+	menuToggleBtn.Text = "MENU"
+	menuToggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	menuToggleBtn.TextSize = 21
+	menuToggleBtn.FontFace = customFont
+	menuToggleBtn.Active = true
+	menuToggleBtn.Draggable = true
+	applyLiquidGlass(menuToggleBtn, 15, true)
+
+	-- KHUNG CHÍNH (Phóng to 1.5x: 555x225) + Liquid Glass
+	local main = Instance.new("Frame", sg)
+	main.Size = UDim2.new(0, 555, 0, 225)
+	main.Position = UDim2.new(0.5, -277, 0.5, -112)
+	main.Active = true
+	main.Draggable = true
+	main.ClipsDescendants = true
+	applyLiquidGlass(main, 16, false)
+
+	local bgImage = Instance.new("ImageLabel", main)
+	bgImage.Name = "BackgroundImage"
+	bgImage.Size = UDim2.new(1, 0, 1, 0)
+	bgImage.BackgroundTransparency = 1
+	bgImage.Image = "https://cdn.phototourl.com/member/2026-11-11-d96cfaed-0d29-41aa-8188-db33b95b89c8.jpg"
+	bgImage.ImageTransparency = 0.65
+	bgImage.ScaleType = Enum.ScaleType.Stretch
+	bgImage.ZIndex = 0
+	Instance.new("UICorner", bgImage).CornerRadius = UDim.new(0, 16)
+
+	-- Thanh chỉ báo Liquid Glass trượt đến chức năng được ấn
+	local liquidSelector = Instance.new("Frame", main)
+	liquidSelector.Name = "LiquidIndicator"
+	liquidSelector.Size = UDim2.new(0, 123, 0, 23)
+	liquidSelector.Position = UDim2.new(0, 12, 0, 39)
+	liquidSelector.BackgroundColor3 = Color3.fromRGB(160, 200, 255)
+	liquidSelector.BackgroundTransparency = 0.68
+	liquidSelector.Visible = false
+	liquidSelector.ZIndex = 1
+	Instance.new("UICorner", liquidSelector).CornerRadius = UDim.new(0, 7)
+
+	local selStroke = Instance.new("UIStroke", liquidSelector)
+	selStroke.Thickness = 1.4
+	selStroke.Color = Color3.fromRGB(255, 255, 255)
+	selStroke.Transparency = 0.25
+
+	local function moveLiquidTo(targetBtn, x, y)
+		triggerLiquidRipple(targetBtn, x, y)
+
+		local mainPos = main.AbsolutePosition
+		local btnPos = targetBtn.AbsolutePosition
+		local btnSize = targetBtn.AbsoluteSize
+
+		local targetPos = UDim2.new(0, btnPos.X - mainPos.X, 0, btnPos.Y - mainPos.Y)
+		local targetSize = UDim2.new(0, btnSize.X, 0, btnSize.Y)
+
+		if not liquidSelector.Visible then
+			liquidSelector.Position = targetPos
+			liquidSelector.Size = targetSize
+			liquidSelector.Visible = true
+		else
+			local stretchTween = TweenService:Create(liquidSelector, TweenInfo.new(0.38, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+				Position = targetPos,
+				Size = targetSize,
+				BackgroundTransparency = 0.58
+			})
+			stretchTween:Play()
+			task.delay(0.25, function()
+				TweenService:Create(liquidSelector, TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {
+					BackgroundTransparency = 0.72
+				}):Play()
+			end)
+		end
+	end
+
+	-- Nút LAG 0.2S phóng to 1.5x + Liquid Glass
+	local lagTriggerBtn = Instance.new("TextButton", sg)
+	lagTriggerBtn.Name = "LagTriggerButton"
+	lagTriggerBtn.Size = UDim2.new(0, 165, 0, 63)
+	lagTriggerBtn.Position = UDim2.new(0.4, 0, 0.1, 0)
+	lagTriggerBtn.Text = "LAG 0.2S"
+	lagTriggerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	lagTriggerBtn.TextSize = 20
+	lagTriggerBtn.FontFace = customFont
+	lagTriggerBtn.Visible = false
+	lagTriggerBtn.Active = true
+	lagTriggerBtn.Draggable = true
+	applyLiquidGlass(lagTriggerBtn, 15, true)
+
+	local header = Instance.new("Frame", main)
+	header.Size = UDim2.new(1, 0, 0, 33)
+	header.BackgroundTransparency = 1
+	header.ZIndex = 2
+
+	local title = Instance.new("TextLabel", header)
+	title.Size = UDim2.new(1, -15, 1, 0)
+	title.Position = UDim2.new(0, 12, 0, 0)
+	title.Text = "Limited Edition • Liquid Glass"
+	title.TextColor3 = Color3.fromRGB(255, 255, 255)
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.BackgroundTransparency = 1
+	title.TextSize = 17
+	title.FontFace = customFont
+	title.ZIndex = 2
+
+	local line = Instance.new("Frame", main)
+	line.Size = UDim2.new(1, -24, 0, 1)
+	line.Position = UDim2.new(0, 12, 0, 33)
+	line.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+	line.BackgroundTransparency = 0.75
+	line.BorderSizePixel = 0
+	line.ZIndex = 2
+
+	-- CONTAINER CHỨA NÚT CHỨC NĂNG (Tỷ lệ 1.5x)
+	local buttonContainer = Instance.new("Frame", main)
+	buttonContainer.Size = UDim2.new(1, -24, 0, 108)
+	buttonContainer.Position = UDim2.new(0, 12, 0, 39)
+	buttonContainer.BackgroundTransparency = 1
+	buttonContainer.ZIndex = 2
+
+	local grid = Instance.new("UIGridLayout", buttonContainer)
+	grid.CellSize = UDim2.new(0, 123, 0, 23)
+	grid.CellPadding = UDim2.new(0, 8, 0, 5)
+	grid.SortOrder = Enum.SortOrder.LayoutOrder
+
+	local function createButton(text, layoutOrder, parent)
+		local btn = Instance.new("TextButton", parent)
+		btn.LayoutOrder = layoutOrder
+		btn.Text = text
+		btn.TextColor3 = Color3.fromRGB(210, 220, 235)
+		btn.TextSize = 11
+		btn.FontFace = customFont
+		btn.ZIndex = 2
+		local bStroke = applyLiquidGlass(btn, 6, true)
+		bStroke.Thickness = 1
+		bStroke.Transparency = 0.55
+		return btn, bStroke
+	end
+
+	local toggleBtn, toggleStroke = createButton("HITBOX : OFF", 1, buttonContainer)
+	local speedBtn, speedStroke = createButton("SPEED x3 : OFF", 2, buttonContainer)
+	local normalSpeedBtn, normalSpeedStroke = createButton("SPEED THƯỜNG : OFF", 3, buttonContainer)
+	local spinBtn, spinStroke = createButton("XOAY 360 : OFF", 4, buttonContainer)
+	local espBtn, espStroke = createButton("ESP : OFF", 5, buttonContainer)
+	local aimBtn, aimStroke = createButton("AIMBOT : OFF", 6, buttonContainer)
+	local fpsBtn, fpsStroke = createButton("144FPS : OFF", 7, buttonContainer)
+	local invBtn, invStroke = createButton("TÀNG HÌNH : OFF", 8, buttonContainer)
+	local jumpBtn, jumpStroke = createButton("AUTO NHẢY : OFF", 9, buttonContainer)
+	local infJumpBtn, infJumpStroke = createButton("NHẢY VÔ HẠN : OFF", 10, buttonContainer)
+	local tracerBtn, tracerStroke = createButton("TRACER 120FPS : ON", 11, buttonContainer)
+	local lagBtn, lagStroke = createButton("LAG : OFF", 12, buttonContainer)
+	local darkBtn, darkStroke = createButton("DARK MODE : OFF", 13, buttonContainer)
+	local ratio43Btn, ratio43Stroke = createButton("MÀN 4:3 : OFF", 14, buttonContainer)
+
+	tracerBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tracerStroke.Transparency = 0.2
+
+	-- KHU VỰC TIỆN ÍCH DƯỚI (Tỷ lệ 1.5x)
+	local bottomFrame = Instance.new("Frame", main)
+	bottomFrame.Size = UDim2.new(1, -24, 0, 63)
+	bottomFrame.Position = UDim2.new(0, 12, 0, 153)
+	bottomFrame.BackgroundTransparency = 1
+	bottomFrame.ZIndex = 2
+
+	local itemBtn = Instance.new("TextButton", bottomFrame)
+	itemBtn.Size = UDim2.new(0.32, 0, 0, 24)
+	itemBtn.Position = UDim2.new(0, 0, 0, 0)
+	itemBtn.Text = "★彡 Рussу Uиkиоши 彡★"
+	itemBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	itemBtn.TextSize = 11
+	itemBtn.FontFace = customFont
+	itemBtn.ZIndex = 2
+	applyLiquidGlass(itemBtn, 6, true)
+
+	local selectBtn = Instance.new("TextButton", bottomFrame)
+	selectBtn.Size = UDim2.new(0.33, -6, 0, 24)
+	selectBtn.Position = UDim2.new(0.34, 0, 0, 0)
+	selectBtn.Text = "Chọn người chơi"
+	selectBtn.TextColor3 = Color3.fromRGB(235, 240, 255)
+	selectBtn.TextSize = 11
+	selectBtn.FontFace = customFont
+	selectBtn.ZIndex = 2
+	applyLiquidGlass(selectBtn, 6, true)
+
+	local tpBtn = Instance.new("TextButton", bottomFrame)
+	tpBtn.Size = UDim2.new(0.33, -3, 0, 24)
+	tpBtn.Position = UDim2.new(0.67, 3, 0, 0)
+	tpBtn.Text = "Dịch chuyển"
+	tpBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	tpBtn.TextSize = 12
+	tpBtn.FontFace = customFont
+	tpBtn.ZIndex = 2
+	local tpStroke = applyLiquidGlass(tpBtn, 6, true)
+	tpStroke.Transparency = 0.25
+
+	local playerList = Instance.new("ScrollingFrame", bottomFrame)
+	playerList.Size = UDim2.new(0.66, 0, 0, 75)
+	playerList.Position = UDim2.new(0.34, 0, 0, 27)
+	playerList.Visible = false
+	playerList.CanvasSize = UDim2.new(0, 0, 0, 0)
+	playerList.ScrollBarThickness = 4
+	playerList.ZIndex = 20
+	applyLiquidGlass(playerList, 6, false)
+	playerList.BackgroundTransparency = 0.55
+
+	local listLayout = Instance.new("UIListLayout", playerList)
+	listLayout.Padding = UDim.new(0, 3)
+
+	menuToggleBtn.MouseButton1Click:Connect(function(x, y)
+		triggerLiquidRipple(menuToggleBtn, x, y)
+		main.Visible = not main.Visible
+	end)
+
+	local TracerLines = {}
+
+	local function createTracerLine()
+		local line = Drawing.new("Line")
+		line.Thickness = 1.8
+		line.Color = Color3.fromRGB(255, 255, 255)
+		line.Transparency = 1
+		line.Visible = false
+		return line
+	end
+
+	local bav = nil
+	local function updateSpin()
+		local char = LocalPlayer.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+
+		if SpinEnabled then
+			if not bav or bav.Parent ~= hrp then
+				if bav then bav:Destroy() end
+				bav = Instance.new("BodyAngularVelocity")
+				bav.Name = "UnknownSpin"
+				bav.MaxTorque = Vector3.new(0, math.huge, 0)
+				bav.AngularVelocity = Vector3.new(0, 44, 0)
+				bav.Parent = hrp
+			end
+		else
+			if bav then
+				bav:Destroy()
+				bav = nil
+			end
+			local oldBav = hrp:FindFirstChild("UnknownSpin")
+			if oldBav then oldBav:Destroy() end
+		end
+	end
+
+	UserInputService.JumpRequest:Connect(function()
+		if InfiniteJumpEnabled then
+			local char = LocalPlayer.Character
+			if char then
+				local humanoid = char:FindFirstChildOfClass("Humanoid")
+				if humanoid then
+					humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+				end
+			end
+		end
+	end)
+
+	toggleBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(toggleBtn, x, y)
+		HitboxEnabled = not HitboxEnabled
+		toggleBtn.Text = HitboxEnabled and "HITBOX : ON" or "HITBOX : OFF"
+		toggleBtn.TextColor3 = HitboxEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		toggleStroke.Transparency = HitboxEnabled and 0.2 or 0.55
+	end)
+
+	speedBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(speedBtn, x, y)
+		SpeedEnabled = not SpeedEnabled
+		speedBtn.Text = SpeedEnabled and "SPEED x3 : ON" or "SPEED x3 : OFF"
+		speedBtn.TextColor3 = SpeedEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		speedStroke.Transparency = SpeedEnabled and 0.2 or 0.55
+	end)
+
+	normalSpeedBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(normalSpeedBtn, x, y)
+		NormalSpeedEnabled = not NormalSpeedEnabled
+		normalSpeedBtn.Text = NormalSpeedEnabled and "SPEED THƯỜNG : ON" or "SPEED THƯỜNG : OFF"
+		normalSpeedBtn.TextColor3 = NormalSpeedEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		normalSpeedStroke.Transparency = NormalSpeedEnabled and 0.2 or 0.55
+	end)
+
+	spinBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(spinBtn, x, y)
+		SpinEnabled = not SpinEnabled
+		spinBtn.Text = SpinEnabled and "XOAY 360 : ON" or "XOAY 360 : OFF"
+		spinBtn.TextColor3 = SpinEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		spinStroke.Transparency = SpinEnabled and 0.2 or 0.55
+		updateSpin()
+	end)
+
+	espBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(espBtn, x, y)
+		EspMM2Enabled = not EspMM2Enabled
+		espBtn.Text = EspMM2Enabled and "ESP : ON" or "ESP : OFF"
+		espBtn.TextColor3 = EspMM2Enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		espStroke.Transparency = EspMM2Enabled and 0.2 or 0.55
+	end)
+
+	aimBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(aimBtn, x, y)
+		AimbotEnabled = not AimbotEnabled
+		aimBtn.Text = AimbotEnabled and "AIMBOT : ON" or "AIMBOT : OFF"
+		aimBtn.TextColor3 = AimbotEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		aimStroke.Transparency = AimbotEnabled and 0.2 or 0.55
+	end)
+
+	fpsBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(fpsBtn, x, y)
+		Fps144Enabled = not Fps144Enabled
+		fpsBtn.Text = Fps144Enabled and "144FPS : ON" or "144FPS : OFF"
+		fpsBtn.TextColor3 = Fps144Enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		fpsStroke.Transparency = Fps144Enabled and 0.2 or 0.55
+		setMaxFPS(Fps144Enabled and 144 or 60)
+	end)
+
+	invBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(invBtn, x, y)
+		InvisibleEnabled = not InvisibleEnabled
+		invBtn.Text = InvisibleEnabled and "TÀNG HÌNH : ON" or "TÀNG HÌNH : OFF"
+		invBtn.TextColor3 = InvisibleEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		invStroke.Transparency = InvisibleEnabled and 0.2 or 0.55
+		
+		local char = LocalPlayer.Character
+		if char and char:FindFirstChild("HumanoidRootPart") then
+			local hrp = char.HumanoidRootPart
+			if InvisibleEnabled then
+				savedPosition = hrp.CFrame
+			else
+				if savedPosition then
+					hrp.CFrame = savedPosition
+				end
+			end
+		end
+	end)
+
+	jumpBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(jumpBtn, x, y)
+		AutoJumpEnabled = not AutoJumpEnabled
+		jumpBtn.Text = AutoJumpEnabled and "AUTO NHẢY : ON" or "AUTO NHẢY : OFF"
+		jumpBtn.TextColor3 = AutoJumpEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		jumpStroke.Transparency = AutoJumpEnabled and 0.2 or 0.55
+	end)
+
+	infJumpBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(infJumpBtn, x, y)
+		InfiniteJumpEnabled = not InfiniteJumpEnabled
+		infJumpBtn.Text = InfiniteJumpEnabled and "NHẢY VÔ HẠN : ON" or "NHẢY VÔ HẠN : OFF"
+		infJumpBtn.TextColor3 = InfiniteJumpEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		infJumpStroke.Transparency = InfiniteJumpEnabled and 0.2 or 0.55
+	end)
+
+	tracerBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(tracerBtn, x, y)
+		TracerEnabled = not TracerEnabled
+		tracerBtn.Text = TracerEnabled and "TRACER 120FPS : ON" or "TRACER 120FPS : OFF"
+		tracerBtn.TextColor3 = TracerEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		tracerStroke.Transparency = TracerEnabled and 0.2 or 0.55
+	end)
+
+	lagBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(lagBtn, x, y)
+		LagToggleEnabled = not LagToggleEnabled
+		lagBtn.Text = LagToggleEnabled and "LAG : ON" or "LAG : OFF"
+		lagBtn.TextColor3 = LagToggleEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		lagStroke.Transparency = LagToggleEnabled and 0.2 or 0.55
+		lagTriggerBtn.Visible = LagToggleEnabled
+	end)
+
+	darkBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(darkBtn, x, y)
+		DarkModeEnabled = not DarkModeEnabled
+		darkBtn.Text = DarkModeEnabled and "DARK MODE : ON" or "DARK MODE : OFF"
+		darkBtn.TextColor3 = DarkModeEnabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		darkStroke.Transparency = DarkModeEnabled and 0.2 or 0.55
+		
+		if DarkModeEnabled then
+			Lighting.ClockTime = 0
+			Lighting.Brightness = 1
+			Lighting.Ambient = Color3.fromRGB(20, 20, 35)
+		else
+			Lighting.ClockTime = originalClockTime
+			Lighting.Brightness = originalBrightness
+			Lighting.Ambient = originalAmbient
+		end
+	end)
+
+	ratio43Btn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(ratio43Btn, x, y)
+		Ratio43Enabled = not Ratio43Enabled
+		ratio43Btn.Text = Ratio43Enabled and "MÀN 4:3 : ON" or "MÀN 4:3 : OFF"
+		ratio43Btn.TextColor3 = Ratio43Enabled and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(210, 220, 235)
+		ratio43Stroke.Transparency = Ratio43Enabled and 0.2 or 0.55
+
+		if Ratio43Enabled then
+			applyStretchMode(1.000000000)
+		else
+			applyStretchMode(0.676767)
+		end
+	end)
+
+	lagTriggerBtn.MouseButton1Click:Connect(function(x, y)
+		triggerLiquidRipple(lagTriggerBtn, x, y)
+		if IsLagging then return end
+		IsLagging = true
+		
+		local char = LocalPlayer.Character
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		local humanoid = char and char:FindFirstChildOfClass("Humanoid")
+		
+		if root and humanoid then
+			local startCFrame = root.CFrame
+			local moveDir = humanoid.MoveDirection
+			
+			local startTime = os.clock()
+			while (os.clock() - startTime) < 0.2 do
+			end
+			
+			if moveDir.Magnitude > 0 then
+				local tpDistance = 25
+				root.CFrame = startCFrame + (moveDir * tpDistance)
+			else
+				root.CFrame = startCFrame
+			end
+		end
+		
+		IsLagging = false
+	end)
+
+	itemBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(itemBtn, x, y)
+		pcall(function()
+			MarketPlaceService:PromptPurchase(LocalPlayer, 6880366374)
+		end)
+	end)
+
+	local function getMM2Role(player)
+		if not player.Character then return "Innocent" end
+		if player.Character:FindFirstChild("Knife") or (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Knife")) then
+			return "Murderer"
+		elseif player.Character:FindFirstChild("Gun") or (player:FindFirstChild("Backpack") and player.Backpack:FindFirstChild("Gun")) then
+			return "Sheriff"
+		end
+		return "Innocent"
+	end
+
+	local function updatePlayerList()
+		for _, child in pairs(playerList:GetChildren()) do
+			if child:IsA("TextButton") then child:Destroy() end
+		end
+		
+		local count = 0
+		for _, player in pairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				count = count + 1
+				local btn = Instance.new("TextButton", playerList)
+				btn.Size = UDim2.new(1, -9, 0, 24)
+				btn.Text = player.DisplayName .. " (@" .. player.Name .. ")"
+				btn.TextColor3 = Color3.fromRGB(240, 245, 255)
+				btn.TextSize = 11
+				btn.FontFace = customFont
+				btn.ZIndex = 21
+				applyLiquidGlass(btn, 5, true)
+				
+				btn.MouseButton1Click:Connect(function(x, y)
+					triggerLiquidRipple(btn, x, y)
+					SelectedPlayer = player
+					selectBtn.Text = player.DisplayName
+					playerList.Visible = false
+				end)
+			end
+		end
+		playerList.CanvasSize = UDim2.new(0, 0, 0, count * 27)
+	end
+
+	selectBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(selectBtn, x, y)
+		playerList.Visible = not playerList.Visible
+		if playerList.Visible then
+			updatePlayerList()
+		end
+	end)
+
+	tpBtn.MouseButton1Click:Connect(function(x, y)
+		moveLiquidTo(tpBtn, x, y)
+		if SelectedPlayer and SelectedPlayer.Character and SelectedPlayer.Character:FindFirstChild("HumanoidRootPart") then
+			if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+				LocalPlayer.Character.HumanoidRootPart.CFrame = SelectedPlayer.Character.HumanoidRootPart.CFrame * CFrame.new(0, 0, 3)
+			end
+		end
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		local hue = (os.clock() % 5) / 5
+		local pastelRainbowColor = Color3.fromHSV(hue, 0.45, 1)
+
+		if LocalPlayer.Character and not IsLagging then
+			local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+			local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+			
+			if humanoid then
+				if NormalSpeedEnabled then
+					humanoid.WalkSpeed = NormalSpeedAmount
+				else
+					if humanoid.WalkSpeed == NormalSpeedAmount then
+						humanoid.WalkSpeed = 16 
+					end
+				end
+			end
+
+			if AutoJumpEnabled and humanoid then
+				if humanoid.FloorMaterial ~= Enum.Material.Air then
+					humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+				end
+			end
+
+			if SpeedEnabled and humanoid and root then
+				local moveDir = humanoid.MoveDirection
+				if moveDir.Magnitude > 0 then
+					local raycastParams = RaycastParams.new()
+					raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+					raycastParams.FilterDescendantsInstances = {LocalPlayer.Character}
+					raycastParams.IgnoreWater = true
+					
+					local rayResult = Workspace:Raycast(root.Position, moveDir * 3.0, raycastParams)
+					
+					if not rayResult then
+						root.CFrame = root.CFrame + (moveDir * (SpeedAmount / 29.6))
+					else
+						local slideDir = moveDir - rayResult.Normal * moveDir:Dot(rayResult.Normal)
+						if slideDir.Magnitude > 0 then
+							root.CFrame = root.CFrame + (slideDir.Unit * (SpeedAmount / 29.6))
+						end
+					end
+				end
+			end
+			
+			if root then
+				if InvisibleEnabled then
+					root.CFrame = CFrame.new(root.Position.X, 99999, root.Position.Z)
+					root.Velocity = Vector3.new(0, 0, 0)
+					root.AssemblyLinearVelocity = Vector3.new(0, 0, 0)
+				end
+			end
+		end
+
+		if Camera then
+			Camera.FieldOfView = AimbotEnabled and 144 or 120
+		end
+
+		local closestTarget = nil
+		local closestDist = math.huge
+		local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+
+		for _, player in pairs(Players:GetPlayers()) do
+			if player ~= LocalPlayer then
+				if player.Character then
+					local hrp = player.Character:FindFirstChild("HumanoidRootPart")
+					local humanoid = player.Character:FindFirstChildOfClass("Humanoid")
+					local head = player.Character:FindFirstChild("Head")
+					
+					if hrp and humanoid and humanoid.Health > 0 then
+						if HitboxEnabled then
+							hrp.Size = Vector3.new(HitboxSize, HitboxSize, HitboxSize)
+							hrp.Color = Color3.fromRGB(255, 255, 255)
+							hrp.Transparency = 0.5
+							hrp.Material = Enum.Material.SmoothPlastic
+							hrp.CanCollide = false
+						else
+							hrp.Size = Vector3.new(2, 2, 1)
+							hrp.Transparency = 1
+						end
+
+						local role = getMM2Role(player)
+						local highlight = player.Character:FindFirstChild("UnknownESP")
+						local billboard = head and head:FindFirstChild("UnknownTag")
+
+						if EspMM2Enabled then
+							if not highlight then
+								highlight = Instance.new("Highlight")
+								highlight.Name = "UnknownESP"
+								highlight.Parent = player.Character
+							end
+							highlight.FillColor = pastelRainbowColor
+							highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+							highlight.FillTransparency = 0.4
+
+							if head then
+								if not billboard then
+									billboard = Instance.new("BillboardGui")
+									billboard.Name = "UnknownTag"
+									billboard.Size = UDim2.new(0, 150, 0, 30)
+									billboard.StudsOffset = Vector3.new(0, 2.5, 0)
+									billboard.AlwaysOnTop = true
+									billboard.Parent = head
+
+									local txt = Instance.new("TextLabel", billboard)
+									txt.Name = "RoleLabel"
+									txt.Size = UDim2.new(1, 0, 1, 0)
+									txt.BackgroundTransparency = 1
+									txt.TextSize = 13
+									txt.FontFace = customFont
+									txt.TextStrokeTransparency = 0
+								end
+								
+								local dist = math.floor((LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart")) and (LocalPlayer.Character.HumanoidRootPart.Position - hrp.Position).Magnitude or 0)
+								local roleText = role == "Murderer" and "🔪 SÁT NHÂN" or (role == "Sheriff" and "🔫 CẢNH SÁT" or "👤 DÂN THƯỜNG")
+								
+								billboard.RoleLabel.Text = player.DisplayName .. "\n[" .. roleText .. " - " .. dist .. "m]"
+								billboard.RoleLabel.TextColor3 = pastelRainbowColor
+							end
+						else
+							if highlight then highlight:Destroy() end
+							if billboard then billboard:Destroy() end
+						end
+
+						if not TracerLines[player] then
+							TracerLines[player] = createTracerLine()
+						end
+						
+						local tracer = TracerLines[player]
+						local screenPos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+						
+						if TracerEnabled and onScreen then
+							tracer.From = screenCenter
+							tracer.To = Vector2.new(screenPos.X, screenPos.Y)
+							tracer.Color = pastelRainbowColor
+							tracer.Visible = true
+						else
+							tracer.Visible = false
+						end
+
+						if AimbotEnabled then
+							if onScreen then
+								local dist = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+								if dist < closestDist then
+									closestDist = dist
+									closestTarget = hrp
+								end
+							end
+						end
+					else
+						if TracerLines[player] then
+							TracerLines[player].Visible = false
+						end
+					end
+				end
+			else
+				if TracerLines[player] then
+					TracerLines[player].Visible = false
+				end
+			end
+		end
+
+		if AimbotEnabled and closestTarget then
+			Camera.CFrame = CFrame.new(Camera.CFrame.Position, closestTarget.Position)
+			if LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+				local hrp = LocalPlayer.Character.HumanoidRootPart
+				hrp.CFrame = CFrame.new(hrp.Position, Vector3.new(closestTarget.Position.X, hrp.Position.Y, closestTarget.Position.Z))
+			end
+		end
+	end)
+
+	Players.PlayerRemoving:Connect(function(player)
+		if TracerLines[player] then
+			TracerLines[player]:Remove()
+			TracerLines[player] = nil
+		end
+	end)
+end
+
+submitBtn.MouseButton1Click:Connect(function()
+	local success, result = pcall(function()
+		return game:HttpGet("https://raw.githubusercontent.com/dinhthaihoa130915-Creator/Unknown/refs/heads/lol/Key")
+	end)
+	
+	local onlineKey = success and result:gsub("%s+", "") or "Unknown-841BD586010346D9"
+	
+	if keyBox.Text == onlineKey or keyBox.Text == "Unknown-841BD586010346D9" then
+		StartMainScript()
+	else
+		keyBox.Text = ""
+		keyBox.PlaceholderText = "Key Sai! Nhập lại..."
+	end
+end)
